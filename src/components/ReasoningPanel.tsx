@@ -22,9 +22,18 @@ export function ReasoningPanel({ trace, citations }: Props) {
           {trace.confidence != null && (
             <span className="metric-badge">{trace.confidence}% avg relevance</span>
           )}
+          {trace.filteredStaleChunks != null && trace.filteredStaleChunks > 0 && (
+            <span className="metric-badge">
+              {trace.filteredStaleChunks} stale filtered
+            </span>
+          )}
           <span className="status-badge">{trace.mode}</span>
         </div>
       </div>
+
+      {trace.freshnessPolicy && (
+        <p className="hydra-caption mb-6">{trace.freshnessPolicy}</p>
+      )}
 
       <div className="mb-8 grid gap-8 md:grid-cols-2">
         <div>
