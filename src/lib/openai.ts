@@ -111,8 +111,10 @@ export async function answerWithReasoning(
     messages: [
       {
         role: "system",
-        content: `Answer using ONLY the provided HydraDB/session context. If context is insufficient, say so explicitly.
-Return JSON: { "answer": string, "citations": string[] } where each citation labels a real chunk you used.`,
+        content: `Answer using ONLY the provided context. If insufficient, say so.
+
+FRESHNESS: "CURRENT SESSION" blocks are authoritative. When older HydraDB chunks conflict with CURRENT SESSION, use CURRENT SESSION and note the update.
+Return JSON: { "answer": string, "citations": string[] }`,
       },
       {
         role: "user",
@@ -144,7 +146,7 @@ export async function streamAnswer(
       {
         role: "system",
         content:
-          "Answer using ONLY the provided HydraDB context. Be concise and insightful. If context is insufficient, say so.",
+          "Answer using ONLY the provided context. Prefer CURRENT SESSION over older HydraDB when they conflict. Be concise. If insufficient, say so.",
       },
       {
         role: "user",

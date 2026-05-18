@@ -4,9 +4,11 @@ import {
   getHydraClient,
   uploadKnowledgeText,
   addTopicMemory,
+  addReconciliationMemory,
 } from "@/lib/hydra";
 import { generateWiki, getOpenAI } from "@/lib/openai";
-import type { IngestMetrics } from "@/lib/types";
+import { reconcileWithPriorKnowledge } from "@/lib/knowledge-consistency";
+import type { IngestMetrics, LearnedTopic } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -29,7 +31,7 @@ export async function POST(req: NextRequest) {
       type: "text" | "url";
       content?: string;
       url?: string;
-      priorTopics?: { title: string; summary: string }[];
+      priorTopics?: LearnedTopic[];
     };
 
     let rawText = "";
@@ -62,14 +64,42 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const filename = `knowledge-${Date.now()}.txt`;
+    const uploadGeneration = (priorTopics?.length ?? 0) + 1;
+    const priorForWiki = priorTopics?.map((t) => ({
+      title: t.title,
+      summary: t.summary,
+    }));
+    const filename = `knowledge-gen${uploadGeneration}-${Date.now()}.txt`;
 
     const [sourceId, wiki] = await Promise.all([
       uploadKnowledgeText(hydra, rawText, filename),
-      generateWiki(openai, rawText, priorTopics),
+      generateWiki(openai, rawText, priorForWiki),
     ]);
 
-    await addTopicMemory(hydra, wiki.title, wiki.summary, wiki.keyConcepts);
+    const rawPreview = rawText.slice(0, 500);
+    const reconciliation = await reconcileWithPriorKnowledge(
+      openai,
+      wiki,
+      priorTopics ?? [],
+      rawPreview,
+      uploadGeneration,
+    );
+
+    const matchingPrior = priorTopics?.find(
+      (t) => t.title.toLowerCase() === wiki.title.toLowerCase(),
+    );
+
+    await addTopicMemory(hydra, wiki.title, wiki.summary, wiki.keyConcepts, {
+      generation: uploadGeneration,
+      supersedesTitle: matchingPrior?.title,
+    });
+
+    await addReconciliationMemory(
+      hydra,
+      uploadGeneration,
+      reconciliation.summary,
+      reconciliation.conflicts.length,
+    );
 
     const metrics: IngestMetrics = {
       conceptsExtracted: wiki.keyConcepts.length,
@@ -77,15 +107,17 @@ export async function POST(req: NextRequest) {
       memoryCommitted: true,
       hydraSourceId: sourceId,
       processingMs: Date.now() - start,
-      uploadGeneration: (priorTopics?.length ?? 0) + 1,
+      uploadGeneration,
       sourceChars: rawText.length,
+      conflictsDetected: reconciliation.conflicts.length,
     };
 
     return NextResponse.json({
       wiki,
-      rawPreview: rawText.slice(0, 500),
+      rawPreview,
       hydraEnabled: true,
       metrics,
+      reconciliation,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Ingest failed";

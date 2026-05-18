@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { trace } = await recallWithTrace(hydra, query.trim(), false);
+    const { trace } = await recallWithTrace(hydra, query.trim(), {
+      thinking: false,
+    });
     return NextResponse.json({
       hits: trace.sources,
       graphEdges: trace.graphEdges,

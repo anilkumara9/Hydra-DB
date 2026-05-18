@@ -41,12 +41,29 @@ export interface WikiPage {
   sourceCoverage: WikiSourceCoverage;
 }
 
+export interface KnowledgeConflict {
+  id: string;
+  entityOrTopic: string;
+  priorClaim: string;
+  newClaim: string;
+  resolution: "prefer_new_upload" | "coexist" | "needs_review";
+  severity: "high" | "medium";
+}
+
+export interface WikiReconciliation {
+  conflicts: KnowledgeConflict[];
+  entityUpdates: string[];
+  summary: string;
+}
+
 export interface LearnedTopic {
   id: string;
   title: string;
   summary: string;
   createdAt: string;
   concepts?: string[];
+  generation?: number;
+  sourceId?: string | null;
 }
 
 export interface ChatMessage {
@@ -65,6 +82,7 @@ export interface RecallSource {
   title: string;
   excerpt: string;
   score: number | null;
+  kind: "knowledge" | "memory" | "session";
 }
 
 export interface ReasoningTrace {
@@ -74,6 +92,8 @@ export interface ReasoningTrace {
   latencyMs: number;
   confidence: number | null;
   mode: "fast" | "thinking";
+  freshnessPolicy?: string;
+  filteredStaleChunks?: number;
 }
 
 export interface CrossTopicInsight {
@@ -91,6 +111,7 @@ export interface IngestMetrics {
   processingMs: number;
   uploadGeneration: number;
   sourceChars: number;
+  conflictsDetected: number;
 }
 
 export interface DashboardStats {

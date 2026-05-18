@@ -144,6 +144,37 @@ npm start
 
 ---
 
+## Knowledge Consistency & Retrieval (the hard problems)
+
+WikiMind explicitly addresses the two pain points of evolving LLM wikis and HydraDB at scale:
+
+### 1. Keeping the wiki consistent as it grows
+
+On every ingest after the first, WikiMind runs **reconciliation** against prior topics:
+
+- Detects **real contradictions** (conflicting dates, numbers, definitions)
+- Flags them in the **Knowledge consistency** panel with prior vs new claims
+- **Prefers the current upload** (generation-tagged) over stale prior state
+- Writes a **reconciliation memory** to HydraDB so recall knows facts were superseded
+- Tags canonical topic memories with `[wiki-gen:N]` for freshness tracking
+
+### 2. Retrieval that does not degrade over time
+
+HydraDB storage is easy; **knowing what to pull back** is hard. WikiMind’s recall pipeline:
+
+| Layer | Behavior |
+|-------|----------|
+| **Current session** | Treated as **authoritative** — wins over older chunks when they conflict |
+| **Context graph** | HydraDB native `graph_context: true` — relationship-ranked paths, not flat chunk soup |
+| **Relevancy gates** | Drops knowledge below 38% and memories below 52% relevancy |
+| **Chat noise filter** | Old “Chat interaction” memories need 72%+ relevancy to surface |
+| **Deduping** | Overlapping chunks collapsed before they reach the LLM |
+| **Trace transparency** | Shows session / knowledge / memory source kinds + stale-filter count |
+
+This avoids weeks of manual reranker patching for hackathon-scale demos while leaning on HydraDB’s graph instead of hand-rolled retrieval pipelines.
+
+---
+
 ## Data Integrity
 
 WikiMind is designed for **honest, measurable demos**:

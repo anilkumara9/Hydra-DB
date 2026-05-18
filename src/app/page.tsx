@@ -13,6 +13,7 @@ import { CrossTopicInsights } from "@/components/CrossTopicInsights";
 import { IndexingStatus } from "@/components/IndexingStatus";
 import { MemorySearch } from "@/components/MemorySearch";
 import { InvestorBriefPanel } from "@/components/InvestorBriefPanel";
+import { KnowledgeConsistencyPanel } from "@/components/KnowledgeConsistencyPanel";
 import type {
   ChatMessage,
   CrossTopicInsight,
@@ -21,6 +22,7 @@ import type {
   LearnedTopic,
   ReasoningTrace,
   WikiPage,
+  WikiReconciliation,
 } from "@/lib/types";
 import { wikiToSessionContext } from "@/lib/wiki-normalize";
 
@@ -45,6 +47,9 @@ export default function Home() {
   const [systemReady, setSystemReady] = useState<boolean | null>(null);
   const [hydraSourceId, setHydraSourceId] = useState<string | null>(null);
   const [sourcePreview, setSourcePreview] = useState<string | null>(null);
+  const [reconciliation, setReconciliation] =
+    useState<WikiReconciliation | null>(null);
+  const [uploadGeneration, setUploadGeneration] = useState(1);
 
   useEffect(() => {
     try {
@@ -69,7 +74,11 @@ export default function Home() {
       const res = await fetch("/api/warm-recall", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({
+          query,
+          sessionContext,
+          uploadGeneration,
+        }),
       });
       const data = await res.json();
       if (res.ok && data.reasoning) {
@@ -79,7 +88,7 @@ export default function Home() {
     } catch {
       /* optional prefetch */
     }
-  }, []);
+  }, [sessionContext, uploadGeneration]);
 
   const fetchCrossTopic = useCallback(async (topicList: LearnedTopic[]) => {
     if (topicList.length < 2) return;
@@ -128,15 +137,12 @@ export default function Home() {
     setLastTrace(null);
     setHydraSourceId(null);
     setSourcePreview(null);
+    setReconciliation(null);
     try {
-      const priorTopics = topics.map((t) => ({
-        title: t.title,
-        summary: t.summary,
-      }));
       const res = await fetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, priorTopics }),
+        body: JSON.stringify({ ...payload, priorTopics: topics }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ingest failed");
@@ -146,6 +152,8 @@ export default function Home() {
       setHydraLive(data.hydraEnabled);
       setHydraSourceId(data.metrics?.hydraSourceId ?? null);
       setSourcePreview(data.rawPreview ?? null);
+      setReconciliation(data.reconciliation ?? null);
+      setUploadGeneration(data.metrics?.uploadGeneration ?? 1);
 
       const ctx = wikiToSessionContext(data.wiki, data.rawPreview);
       setSessionContext(ctx);
@@ -159,6 +167,8 @@ export default function Home() {
             summary: data.wiki.summary,
             createdAt: new Date().toISOString(),
             concepts: data.wiki.keyConcepts,
+            generation: data.metrics?.uploadGeneration,
+            sourceId: data.metrics?.hydraSourceId,
           },
           ...prev.filter((t) => t.title !== data.wiki.title),
         ].slice(0, 15);
@@ -191,6 +201,7 @@ export default function Home() {
             question,
             sessionContext,
             thinkingMode: thinking,
+            uploadGeneration,
           }),
         });
         if (!res.ok || !res.body) {
@@ -271,6 +282,7 @@ export default function Home() {
           sessionContext,
           history: messages,
           thinkingMode: thinking,
+          uploadGeneration,
         }),
       });
       const data = await res.json();
@@ -371,6 +383,8 @@ export default function Home() {
           loading={ingestLoading}
           sourcePreview={sourcePreview}
         />
+
+        <KnowledgeConsistencyPanel reconciliation={reconciliation} />
 
         {wiki && (
           <AdvancedKnowledgeGraph

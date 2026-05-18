@@ -5,7 +5,11 @@ export const maxDuration = 45;
 
 export async function POST(req: NextRequest) {
   try {
-    const { query } = (await req.json()) as { query?: string };
+    const { query, sessionContext, uploadGeneration } = (await req.json()) as {
+      query?: string;
+      sessionContext?: string;
+      uploadGeneration?: number;
+    };
     if (!query?.trim()) {
       return NextResponse.json({ error: "Query required" }, { status: 400 });
     }
@@ -18,7 +22,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { trace } = await recallWithTrace(hydra, query.trim(), false);
+    const { trace } = await recallWithTrace(hydra, query.trim(), {
+      thinking: false,
+      sessionContext,
+      uploadGeneration,
+    });
     return NextResponse.json({ reasoning: trace });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Warm recall failed";

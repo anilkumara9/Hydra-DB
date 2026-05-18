@@ -1,15 +1,17 @@
 import { NextRequest } from "next/server";
-import { getHydraClient, recallWithTrace, addTopicMemory } from "@/lib/hydra";
+import { getHydraClient, recallWithTrace } from "@/lib/hydra";
 import { getOpenAI, streamAnswer } from "@/lib/openai";
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const { question, sessionContext, thinkingMode } = (await req.json()) as {
-    question?: string;
-    sessionContext?: string;
-    thinkingMode?: boolean;
-  };
+  const { question, sessionContext, thinkingMode, uploadGeneration } =
+    (await req.json()) as {
+      question?: string;
+      sessionContext?: string;
+      thinkingMode?: boolean;
+      uploadGeneration?: number;
+    };
 
   if (!question?.trim()) {
     return new Response(JSON.stringify({ error: "Question required" }), {
@@ -25,10 +27,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const recalled = await recallWithTrace(hydra, question, thinkingMode);
-  const context = [sessionContext, recalled.context].filter(Boolean).join("\n\n");
+  const recalled = await recallWithTrace(hydra, question, {
+    thinking: thinkingMode,
+    sessionContext,
+    uploadGeneration: uploadGeneration ?? 1,
+  });
 
-  if (!context.trim()) {
+  if (!recalled.context.trim()) {
     return new Response(
       JSON.stringify({
         error: "No HydraDB context yet. Wait for indexing after upload.",
@@ -48,7 +53,7 @@ export async function POST(req: NextRequest) {
         ),
       );
       try {
-        const tokens = await streamAnswer(openai, question, context);
+        const tokens = await streamAnswer(openai, question, recalled.context);
         for await (const token of tokens) {
           controller.enqueue(
             encoder.encode(
@@ -56,11 +61,6 @@ export async function POST(req: NextRequest) {
             ),
           );
         }
-        await addTopicMemory(
-          hydra,
-          "Chat interaction",
-          `Q: ${question.slice(0, 120)}`,
-        );
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`),
         );

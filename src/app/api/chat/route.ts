@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getHydraClient,
-  recallWithTrace,
-  addTopicMemory,
-} from "@/lib/hydra";
+import { getHydraClient, recallWithTrace, addTopicMemory } from "@/lib/hydra";
 import { answerWithReasoning, getOpenAI } from "@/lib/openai";
 import type { ChatMessage } from "@/lib/types";
 
@@ -11,12 +7,13 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
-    const { question, sessionContext, history, thinkingMode } =
+    const { question, sessionContext, history, thinkingMode, uploadGeneration } =
       (await req.json()) as {
         question: string;
         sessionContext?: string;
         history?: ChatMessage[];
         thinkingMode?: boolean;
+        uploadGeneration?: number;
       };
 
     if (!question?.trim()) {
@@ -42,12 +39,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const recalled = await recallWithTrace(hydra, question, thinkingMode);
-    const context = [sessionContext, recalled.context]
-      .filter(Boolean)
-      .join("\n\n");
+    const recalled = await recallWithTrace(hydra, question, {
+      thinking: thinkingMode,
+      sessionContext,
+      uploadGeneration: uploadGeneration ?? 1,
+    });
 
-    if (!context.trim()) {
+    if (!recalled.context.trim()) {
       return NextResponse.json(
         {
           error:
@@ -60,14 +58,8 @@ export async function POST(req: NextRequest) {
     const { answer, citations } = await answerWithReasoning(
       openai,
       question,
-      context,
+      recalled.context,
       history ?? [],
-    );
-
-    await addTopicMemory(
-      hydra,
-      "Chat interaction",
-      `Q: ${question.slice(0, 150)} | A: ${answer.slice(0, 200)}`,
     );
 
     return NextResponse.json({

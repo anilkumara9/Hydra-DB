@@ -56,9 +56,16 @@ export function ReasoningPanel({ trace, citations }: Props) {
             <ul className="space-y-3">
               {trace.sources.map((s, i) => (
                 <li key={i} className="inner-card">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-medium text-white">{s.title}</span>
-                    <span className="text-[#FF571A]">
+                  <div className="flex justify-between gap-2 text-xs">
+                    <span className="font-medium text-white">
+                      {s.title}
+                      {s.kind && (
+                        <span className="ml-2 hydra-caption uppercase">
+                          {s.kind}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 text-[#FF571A]">
                       {s.score != null ? `${s.score}%` : "—"}
                     </span>
                   </div>
