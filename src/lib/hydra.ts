@@ -194,3 +194,33 @@ export async function recallWithTrace(
 
   return { context: contextParts.join("\n\n"), trace };
 }
+
+export async function verifyIndexingStatus(
+  client: HydraDBClient,
+  sourceId: string,
+): Promise<{ status: string; ready: boolean; message: string }> {
+  await ensureTenant(client);
+  try {
+    const result = await client.upload.verifyProcessing({
+      tenant_id: TENANT_ID,
+      sub_tenant_id: SUB_TENANT_ID,
+      file_ids: [sourceId],
+    });
+    const row = result.statuses?.[0];
+    const status = row?.indexing_status ?? "unknown";
+    const ready = status === "completed" && row?.success !== false;
+    return {
+      status,
+      ready,
+      message: ready
+        ? "HydraDB indexing complete — full recall enabled"
+        : `HydraDB status: ${status}`,
+    };
+  } catch (e) {
+    return {
+      status: "unknown",
+      ready: false,
+      message: e instanceof Error ? e.message : "Could not verify indexing",
+    };
+  }
+}

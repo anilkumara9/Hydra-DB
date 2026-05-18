@@ -44,9 +44,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (rawText.length < 30) {
+    if (rawText.length < 200) {
       return NextResponse.json(
-        { error: "Not enough content to analyze" },
+        {
+          error:
+            "Upload at least ~200 characters for an accurate structured wiki (short snippets produce minimal coverage).",
+        },
         { status: 400 },
       );
     }
@@ -59,13 +62,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const sourceId = await uploadKnowledgeText(
-      hydra,
-      rawText,
-      `knowledge-${Date.now()}.txt`,
-    );
+    const filename = `knowledge-${Date.now()}.txt`;
 
-    const wiki = await generateWiki(openai, rawText, priorTopics);
+    const [sourceId, wiki] = await Promise.all([
+      uploadKnowledgeText(hydra, rawText, filename),
+      generateWiki(openai, rawText, priorTopics),
+    ]);
 
     await addTopicMemory(hydra, wiki.title, wiki.summary, wiki.keyConcepts);
 
@@ -76,6 +78,7 @@ export async function POST(req: NextRequest) {
       hydraSourceId: sourceId,
       processingMs: Date.now() - start,
       uploadGeneration: (priorTopics?.length ?? 0) + 1,
+      sourceChars: rawText.length,
     };
 
     return NextResponse.json({

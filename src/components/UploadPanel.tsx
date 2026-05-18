@@ -35,7 +35,8 @@ export function UploadPanel({ onIngest, loading }: Props) {
         <h2 className="hydra-h3 font-display">Upload Knowledge</h2>
       </div>
       <p className="hydra-caption mb-6">
-        Your content is ingested into HydraDB — no sample or preloaded data
+        Paste or upload real source material (200+ characters). Wiki sections are
+        generated only from your text — nothing preloaded.
       </p>
 
       <div className="mb-6 flex flex-wrap gap-2">

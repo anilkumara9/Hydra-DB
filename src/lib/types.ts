@@ -8,15 +8,37 @@ export interface WikiTimelineEvent {
   event: string;
 }
 
+export interface WikiSection {
+  heading: string;
+  paragraphs: string[];
+  bullets?: string[];
+}
+
+export interface WikiInfoboxRow {
+  label: string;
+  value: string;
+}
+
+export interface WikiKeyFact {
+  fact: string;
+  evidence: string;
+}
+
+export type WikiSourceCoverage = "full" | "partial" | "minimal";
+
 export interface WikiPage {
   title: string;
   summary: string;
+  sections: WikiSection[];
+  infobox: WikiInfoboxRow[];
+  keyFacts: WikiKeyFact[];
   keyConcepts: string[];
   entities: WikiEntity[];
   timeline: WikiTimelineEvent[];
   relatedTechnologies: string[];
-  futurePredictions: string[];
+  inferences: string[];
   connections: string[];
+  sourceCoverage: WikiSourceCoverage;
 }
 
 export interface LearnedTopic {
@@ -68,6 +90,7 @@ export interface IngestMetrics {
   hydraSourceId: string | null;
   processingMs: number;
   uploadGeneration: number;
+  sourceChars: number;
 }
 
 export interface DashboardStats {
@@ -76,4 +99,26 @@ export interface DashboardStats {
   hydraRelations: number | null;
   avgRecallMs: number | null;
   recallConfidence: number | null;
+  chunksRetrieved: number | null;
+}
+
+export interface IndexingStatus {
+  sourceId: string;
+  status: "queued" | "processing" | "completed" | "error" | "unknown";
+  ready: boolean;
+  message: string;
+}
+
+export interface MemorySearchHit {
+  title: string;
+  excerpt: string;
+  score: number | null;
+}
+
+export interface InvestorBrief {
+  thesis: string;
+  marketOpportunity: string;
+  productMoat: string;
+  tractionSignals: string[];
+  askStatement: string;
 }

@@ -20,6 +20,7 @@ export function CommandCenter({ stats, hydraLive, pitchMode }: Props) {
     { label: "HydraDB Relations", value: fmt(stats.hydraRelations) },
     { label: "Recall Latency", value: fmt(stats.avgRecallMs, "ms") },
     { label: "Recall Relevance", value: fmt(stats.recallConfidence, "%") },
+    { label: "Chunks Retrieved", value: fmt(stats.chunksRetrieved) },
   ];
 
   return (
@@ -35,7 +36,7 @@ export function CommandCenter({ stats, hydraLive, pitchMode }: Props) {
           {hydraLive ? "HydraDB Connected" : "HydraDB Not Configured"}
         </span>
       </div>
-      <div className={`grid grid-cols-2 gap-4 md:grid-cols-5 ${pitchMode ? "pitch-mode" : ""}`}>
+      <div className={`grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6 ${pitchMode ? "pitch-mode" : ""}`}>
         {cards.map((c) => (
           <div key={c.label} className="stat-card">
             <p className="stat-value tabular-nums">{c.value}</p>

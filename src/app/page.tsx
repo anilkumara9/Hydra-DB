@@ -10,14 +10,19 @@ import { CommandCenter } from "@/components/CommandCenter";
 import { EvolutionPipeline } from "@/components/EvolutionPipeline";
 import { ReasoningPanel } from "@/components/ReasoningPanel";
 import { CrossTopicInsights } from "@/components/CrossTopicInsights";
+import { IndexingStatus } from "@/components/IndexingStatus";
+import { MemorySearch } from "@/components/MemorySearch";
+import { InvestorBriefPanel } from "@/components/InvestorBriefPanel";
 import type {
   ChatMessage,
   CrossTopicInsight,
   DashboardStats,
+  IngestMetrics,
   LearnedTopic,
   ReasoningTrace,
   WikiPage,
 } from "@/lib/types";
+import { wikiToSessionContext } from "@/lib/wiki-normalize";
 
 const TOPICS_KEY = "wiki-mind-topics";
 const CONTEXT_KEY = "wiki-mind-context";
@@ -29,9 +34,7 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [topics, setTopics] = useState<LearnedTopic[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [metrics, setMetrics] = useState<{
-    uploadGeneration: number;
-  } | null>(null);
+  const [metrics, setMetrics] = useState<IngestMetrics | null>(null);
   const [lastTrace, setLastTrace] = useState<ReasoningTrace | null>(null);
   const [lastCitations, setLastCitations] = useState<string[]>([]);
   const [crossInsight, setCrossInsight] = useState<CrossTopicInsight | null>(null);
@@ -40,6 +43,8 @@ export default function Home() {
   const [hydraLive, setHydraLive] = useState(false);
   const [avgRecallMs, setAvgRecallMs] = useState<number | null>(null);
   const [systemReady, setSystemReady] = useState<boolean | null>(null);
+  const [hydraSourceId, setHydraSourceId] = useState<string | null>(null);
+  const [sourcePreview, setSourcePreview] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -57,6 +62,23 @@ export default function Home() {
         setSystemReady(d.ready);
       })
       .catch(() => setSystemReady(false));
+  }, []);
+
+  const warmRecall = useCallback(async (query: string) => {
+    try {
+      const res = await fetch("/api/warm-recall", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      const data = await res.json();
+      if (res.ok && data.reasoning) {
+        setLastTrace(data.reasoning);
+        setAvgRecallMs(data.reasoning.latencyMs);
+      }
+    } catch {
+      /* optional prefetch */
+    }
   }, []);
 
   const fetchCrossTopic = useCallback(async (topicList: LearnedTopic[]) => {
@@ -89,6 +111,7 @@ export default function Home() {
       hydraRelations: lastTrace?.graphEdges.length ?? null,
       avgRecallMs,
       recallConfidence: lastTrace?.confidence ?? null,
+      chunksRetrieved: lastTrace?.sources.length ?? null,
     }),
     [topics, wiki, lastTrace, avgRecallMs],
   );
@@ -103,6 +126,8 @@ export default function Home() {
     setWiki(null);
     setCrossInsight(null);
     setLastTrace(null);
+    setHydraSourceId(null);
+    setSourcePreview(null);
     try {
       const priorTopics = topics.map((t) => ({
         title: t.title,
@@ -117,18 +142,12 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error ?? "Ingest failed");
 
       setWiki(data.wiki);
-      setMetrics({ uploadGeneration: data.metrics.uploadGeneration });
+      setMetrics(data.metrics);
       setHydraLive(data.hydraEnabled);
+      setHydraSourceId(data.metrics?.hydraSourceId ?? null);
+      setSourcePreview(data.rawPreview ?? null);
 
-      const ctx = [
-        `Title: ${data.wiki.title}`,
-        `Summary: ${data.wiki.summary}`,
-        `Concepts: ${data.wiki.keyConcepts.join(", ")}`,
-        `Entities: ${data.wiki.entities.map((e: { name: string; role: string }) => `${e.name} (${e.role})`).join(", ")}`,
-        data.rawPreview ? `Source excerpt: ${data.rawPreview}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
+      const ctx = wikiToSessionContext(data.wiki, data.rawPreview);
       setSessionContext(ctx);
       localStorage.setItem(CONTEXT_KEY, ctx);
 
@@ -154,9 +173,94 @@ export default function Home() {
     }
   };
 
-  const handleAsk = async (question: string, thinking: boolean) => {
+  const handleAsk = async (
+    question: string,
+    thinking: boolean,
+    useStream: boolean,
+  ) => {
     setError(null);
     setMessages((m) => [...m, { role: "user", content: question }]);
+
+    if (useStream) {
+      setMessages((m) => [...m, { role: "assistant", content: "" }]);
+      try {
+        const res = await fetch("/api/chat/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            sessionContext,
+            thinkingMode: thinking,
+          }),
+        });
+        if (!res.ok || !res.body) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error ?? "Stream failed");
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullAnswer = "";
+        let trace: ReasoningTrace | undefined;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            let payload: {
+              type: string;
+              text?: string;
+              reasoning?: ReasoningTrace;
+              message?: string;
+            };
+            try {
+              payload = JSON.parse(line.slice(6));
+            } catch {
+              continue;
+            }
+            if (payload.type === "meta" && payload.reasoning) {
+              trace = payload.reasoning;
+              setLastTrace(trace);
+              setAvgRecallMs(trace.latencyMs);
+            }
+            if (payload.type === "token" && payload.text) {
+              fullAnswer += payload.text;
+              setMessages((m) => {
+                const copy = [...m];
+                copy[copy.length - 1] = {
+                  role: "assistant",
+                  content: fullAnswer,
+                  reasoning: trace,
+                };
+                return copy;
+              });
+            }
+            if (payload.type === "error") {
+              throw new Error(payload.message ?? "Stream error");
+            }
+          }
+        }
+
+        if (trace?.sources?.length) {
+          setLastCitations(trace.sources.map((s) => s.title));
+        }
+        return { answer: fullAnswer, reasoning: trace };
+      } catch (e) {
+        setMessages((m) =>
+          m.filter(
+            (_, i) =>
+              i !== m.length - 1 || m[m.length - 1].role !== "assistant",
+          ),
+        );
+        setError(e instanceof Error ? e.message : "Chat failed");
+        throw e;
+      }
+    }
 
     try {
       const res = await fetch("/api/chat", {
@@ -176,7 +280,6 @@ export default function Home() {
         setLastTrace(data.reasoning);
         setAvgRecallMs(data.reasoning.latencyMs);
       }
-      if (data.citations) setLastCitations(data.citations);
 
       setMessages((m) => [
         ...m,
@@ -186,6 +289,7 @@ export default function Home() {
           reasoning: data.reasoning,
         },
       ]);
+      if (data.citations?.length) setLastCitations(data.citations);
 
       return {
         answer: data.answer,
@@ -193,6 +297,7 @@ export default function Home() {
         reasoning: data.reasoning,
       };
     } catch (e) {
+      setMessages((m) => m.filter((_, i) => i !== m.length - 1 || m[m.length - 1].role !== "assistant"));
       setError(e instanceof Error ? e.message : "Chat failed");
       throw e;
     }
@@ -202,7 +307,7 @@ export default function Home() {
     <div
       className={`relative min-h-screen bg-black ${pitchMode ? "pitch-mode" : ""}`}
     >
-      <div className="grid-bg pointer-events-none fixed inset-0 hidden md:block" />
+      <div className="grid-bg pointer-events-none fixed inset-0 hidden md:block" aria-hidden />
 
       <header className="hydra-nav relative z-10">
         <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between px-4 md:px-10">
@@ -216,7 +321,7 @@ export default function Home() {
           </span>
           <nav className="flex items-center gap-4">
             <span className="hydra-caption hidden text-[#999999] sm:inline">
-              Memory · Knowledge · Recall
+              Agentic Memory Infrastructure
             </span>
             <button
               type="button"
@@ -233,15 +338,15 @@ export default function Home() {
         <section>
           <h2 className="hydra-hero mb-2">Self-Evolving AI Wikipedia</h2>
           <p className="hydra-body max-w-2xl text-[20px] leading-6 text-white">
-            Real HydraDB memory and OpenAI synthesis — every metric and graph edge
-            comes from your uploads and live recall.
+            Parallel ingest · live HydraDB indexing · streamed reasoning · investor-grade
+            intelligence — zero demo data.
           </p>
         </section>
 
         {systemReady === false && (
           <div className="info-box text-sm text-white">
             Configure OPENAI_API_KEY and HYDRA_DB_API_KEY in .env.local, then restart
-            the dev server. This build does not use demo or fallback data.
+            the dev server.
           </div>
         )}
 
@@ -254,10 +359,18 @@ export default function Home() {
           generation={metrics?.uploadGeneration ?? (topics.length || 1)}
         />
 
-        <div className="grid gap-8 lg:grid-cols-2">
-          <UploadPanel onIngest={handleIngest} loading={ingestLoading} />
-          <WikiView wiki={wiki} loading={ingestLoading} />
-        </div>
+        <IndexingStatus
+          sourceId={hydraSourceId}
+          onReady={() => wiki && warmRecall(wiki.title)}
+        />
+
+        <UploadPanel onIngest={handleIngest} loading={ingestLoading} />
+
+        <WikiView
+          wiki={wiki}
+          loading={ingestLoading}
+          sourcePreview={sourcePreview}
+        />
 
         {wiki && (
           <AdvancedKnowledgeGraph
@@ -266,11 +379,20 @@ export default function Home() {
           />
         )}
 
+        <MemorySearch disabled={!hydraLive} />
+
         {(crossInsight || evolveLoading) && topics.length >= 2 && (
           <CrossTopicInsights insight={crossInsight} loading={evolveLoading} />
         )}
 
-        <div className="grid gap-8 lg:grid-cols-2">
+        <InvestorBriefPanel
+          wiki={wiki}
+          topics={topics}
+          stats={stats}
+          disabled={!wiki && topics.length === 0}
+        />
+
+        <div className="grid items-start gap-8 lg:grid-cols-2">
           <ChatPanel
             disabled={!sessionContext || !hydraLive}
             suggestions={chatSuggestions}
